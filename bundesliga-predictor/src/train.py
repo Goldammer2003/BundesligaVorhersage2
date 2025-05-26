@@ -50,13 +50,28 @@ df = df[df["result"].isin(["H", "D", "A"])].copy()
 print("Shape nach FE:", df.shape)
 
 # -------------------------------------------------- 2) Korrelation
-corr = df[features.NUM_FEATS].corr()
-Path("reports").mkdir(exist_ok=True)
+# -------------------------------------------------- 2) Korrelation prüfen
+corr_df = df[features.NUM_FEATS].copy()
+
+# Warnung ausgeben, falls Feature-Spalten konstant sind (z. B. nur 0)
+dropped_cols = corr_df.columns[corr_df.nunique() <= 1]
+if len(dropped_cols) > 0:
+    print("⚠️  Folgende Features wurden nicht in die Korrelationsmatrix aufgenommen (nur konstante Werte):")
+    for col in dropped_cols:
+        print(f"   - {col}")
+
+# Nur valide Spalten behalten
+corr_df = corr_df.drop(columns=dropped_cols)
+
+# Korrelation berechnen und speichern
+corr = corr_df.corr()
 sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1)
 plt.title("Korrelationsmatrix numerischer Features")
-plt.tight_layout(); plt.savefig("reports/correlation_matrix.png"); plt.close()
-print("Korrelationsmatrix → reports/correlation_matrix.png")
-
+plt.tight_layout()
+Path("reports").mkdir(exist_ok=True)
+plt.savefig("reports/correlation_matrix.png")
+plt.close()
+print("Korrelationsmatrix gespeichert → reports/correlation_matrix.png")
 # -------------------------------------------------- 3) Zeitlicher Train/Test-Split
 df = df.sort_values("date")
 cut = int(len(df)*0.8)
