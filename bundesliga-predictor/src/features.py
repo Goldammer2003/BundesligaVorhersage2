@@ -1,35 +1,45 @@
 """
 Feature-Engineering & Vorverarbeitung
 """
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler
 
 NUM_FEATS = [
+    # Wettmarkt (implizite Wahrscheinlichkeit)
     "imp_home", "imp_draw", "imp_away",
-    "form_last5", "goal_diff", "xg_diff", "h2h_home_winrate"
+    # Team-Form
+    "form_last5",
+    # Tore und xG Differenzen
+    "goal_diff", "xg_diff",
+    # Head-to-Head
+    "h2h_home_winrate"
 ]
 
 def add_implied_prob(df: pd.DataFrame) -> pd.DataFrame:
+    # Falls Quoten fehlen → uniform verteilen, ansonsten implizite p berechnen
     for s in ("home", "draw", "away"):
-        df[f"imp_{s}"] = 1 / df[f"odds_{s}"]
+        if f"odds_{s}" not in df.columns:
+            df[f"imp_{s}"] = 1/3
+        else:
+            df[f"imp_{s}"] = 1 / df[f"odds_{s}"]
     total = df[[f"imp_{s}" for s in ("home", "draw", "away")]].sum(axis=1)
     for s in ("home", "draw", "away"):
-        df[f"imp_{s}"] /= total
+        df[f"imp_{s}"] /= total.replace(0, np.nan)
     return df
 
 def add_form(df: pd.DataFrame, window: int = 5) -> pd.DataFrame:
+    # Rolling-Average der letzten x Spiele
     df = df.sort_values("date")
-    df["points_home"] = df["result"].map({"H": 3, "D": 1, "A": 0})
-    df["points_away"] = df["result"].map({"H": 0, "D": 1, "A": 3})
-
-    form_vals = []
+    df["home_pts"] = df["result"].map({"H":3, "D":1, "A":0})
+    df["away_pts"] = df["result"].map({"H":0, "D":1, "A":3})
+    form = []
     for team in pd.unique(df[["home_team", "away_team"]].values.ravel()):
         mask = (df.home_team == team) | (df.away_team == team)
-        pts = np.where(df.home_team == team, df.points_home,
-                       np.where(df.away_team == team, df.points_away, np.nan))
-        form_vals.append(pd.Series(pts).rolling(window, min_periods=1).mean())
-    df["form_last5"] = np.vstack(form_vals).max(axis=0)
+        pts  = np.where(df.home_team == team, df.home_pts,
+                        np.where(df.away_team == team, df.away_pts, np.nan))
+        form.append(pd.Series(pts).rolling(window, min_periods=1).mean())
+    df["form_last5"] = np.vstack(form).max(axis=0)
     return df
 
 def add_goal_xg_diff(df: pd.DataFrame) -> pd.DataFrame:
@@ -41,4 +51,7 @@ def add_goal_xg_diff(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def build_preprocessor():
-    return ColumnTransformer([("num", "passthrough", NUM_FEATS)], remainder="drop")
+    return ColumnTransformer(
+        [("num", StandardScaler(), NUM_FEATS)],
+        remainder="drop"
+    )

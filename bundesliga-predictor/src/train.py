@@ -1,161 +1,139 @@
 """
-Training, Modellvergleich und Speicherung des besten Bundesliga-Vorhersagemodells.
-Danach (optional) Monte-Carlo-Simulation der Meisterwahrscheinlichkeiten.
+Training-Pipeline:  Daten einlesen  ➜  Features  ➜  Model Training
+Speichert:
+    • reports/model_metrics.csv
+    • models/best_model.pkl
 """
-# -------------------------------------------------- Basics
-import warnings, pickle, math, time
+from __future__ import annotations
+import time, math, pickle, warnings
 from pathlib import Path
+from typing  import List, Dict
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import pandas as pd, numpy as np
 from tqdm import tqdm
-
+from sklearn.metrics import (accuracy_score, log_loss, brier_score_loss,
+                             mean_squared_error)
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.metrics import (
-    accuracy_score, log_loss, classification_report,
-    mean_absolute_error, mean_squared_error, brier_score_loss
-)
+from sklearn.svm      import SVC
 
-from src import ingest, features     # eigene Module
+# ────────────────────────────────────────────────────────────────
+# interne Module
+# ────────────────────────────────────────────────────────────────
+from src.config        import SEASONS, MODEL_DIR, RAW_DIR, FD_URL
+from src.utils         import read_csv_cached, scrape_bulibox_h2h
+from src.fbref_ingest  import load_fbref_xg
+from src               import features                       # NUM_FEATS etc.
 
 warnings.filterwarnings("ignore", category=pd.errors.ParserWarning)
-print("train.py gestartet ✅")
 
-# -------------------------------------------------- 0) Daten laden
-print("Lade Daten …")
-df = ingest.load_fd()
+# ────────────────────────────────────────────────────────────────
+# 0) Daten laden  ─ football-data
+# ────────────────────────────────────────────────────────────────
+def load_fd(seasons: List[int] = SEASONS) -> pd.DataFrame:
+    frames = []
+    for s in tqdm(seasons, desc="football-data"):
+        url  = FD_URL.format(y1=s % 100, y2=(s+1) % 100)
+        path = RAW_DIR / f"fd_D1_{s}.csv"
+        df   = read_csv_cached(url, path)
+        df["Season"] = f"{s}/{str(s+1)[-2:]}"
+        frames.append(df)
 
-# -------------------------------------------------- 1) Feature-Engineering
-print("Wende Feature Engineering an …")
-df = (df
-      .pipe(features.add_implied_prob)
-      .pipe(features.add_form)
-      .pipe(features.add_goal_xg_diff))
+    df = pd.concat(frames, ignore_index=True, copy=False)
 
-USE_H2H = False      # ⚡ True dauert ~15 min, False setzt neutrales 0.5-Default
-if USE_H2H:
-    df = ingest.add_h2h(df)
-else:
-    df["h2h_home_winrate"] = 0.5
+    rename = {"Date":"date","HomeTeam":"home_team","AwayTeam":"away_team",
+              "FTHG":"home_goals","FTAG":"away_goals","FTR":"result",
+              "B365H":"odds_home","B365D":"odds_draw","B365A":"odds_away"}
+    df = df.rename(columns=rename)[list(rename.values()) + ["Season"]]
+    df["date"] = pd.to_datetime(df["date"], dayfirst=True, errors="coerce")
+    return df.dropna(subset=["date"])
 
-for col in features.NUM_FEATS:
-    df[col] = df.get(col, 0).fillna(0)
+# ────────────────────────────────────────────────────────────────
+# 1) Enrichment
+# ────────────────────────────────────────────────────────────────
+def add_fbref_xg(df: pd.DataFrame) -> pd.DataFrame:
+    xg = load_fbref_xg(sorted(df.Season.str[:4].astype(int).unique()))
+    if xg.empty:
+        df["xg_home"] = df["xg_away"] = np.nan
+        return df
+    df = df.merge(xg, how="left",
+                  left_on=["Season","home_team","away_team","date"],
+                  right_on=["season","home_team","away_team","date"])\
+           .drop(columns=["season"])
+    return df
 
-df = df[df["result"].isin(["H", "D", "A"])].copy()
-print("Shape nach FE:", df.shape)
+def add_h2h(df: pd.DataFrame) -> pd.DataFrame:
+    rates = [scrape_bulibox_h2h(r.home_team, r.away_team)
+             for _, r in tqdm(df.iterrows(), total=len(df), desc="Bulibox H2H")]
+    return pd.concat([df.reset_index(drop=True), pd.DataFrame(rates)], axis=1)
 
-# -------------------------------------------------- 2) Korrelation
-# -------------------------------------------------- 2) Korrelation prüfen
-corr_df = df[features.NUM_FEATS].copy()
+# ────────────────────────────────────────────────────────────────
+# 2) Haupt-Routine
+# ────────────────────────────────────────────────────────────────
+def main() -> None:
+    print("✅ train.py gestartet")
 
-# Warnung ausgeben, falls Feature-Spalten konstant sind (z. B. nur 0)
-dropped_cols = corr_df.columns[corr_df.nunique() <= 1]
-if len(dropped_cols) > 0:
-    print("⚠️  Folgende Features wurden nicht in die Korrelationsmatrix aufgenommen (nur konstante Werte):")
-    for col in dropped_cols:
-        print(f"   - {col}")
+    # a) Daten
+    df = load_fd()
+    df = (df.pipe(add_fbref_xg)
+            .pipe(add_h2h)
+            .pipe(features.add_implied_prob)   # Achtung: Quoten = Leakage!
+            .pipe(features.add_form)
+            .pipe(features.add_goal_xg_diff))
 
-# Nur valide Spalten behalten
-corr_df = corr_df.drop(columns=dropped_cols)
+    df = df[df["result"].isin(["H","D","A"])].fillna(0)
+    print("Datensätze nach FE:", df.shape)
 
-# Korrelation berechnen und speichern
-corr = corr_df.corr()
-sns.heatmap(corr, annot=True, cmap="coolwarm", vmin=-1, vmax=1)
-plt.title("Korrelationsmatrix numerischer Features")
-plt.tight_layout()
-Path("reports").mkdir(exist_ok=True)
-plt.savefig("reports/correlation_matrix.png")
-plt.close()
-print("Korrelationsmatrix gespeichert → reports/correlation_matrix.png")
-# -------------------------------------------------- 3) Zeitlicher Train/Test-Split
-df = df.sort_values("date")
-cut = int(len(df)*0.8)
-train_df, test_df = df.iloc[:cut], df.iloc[cut:]
+    # b) Split (letzte Saison als Test)
+    last_season      = df.Season.iloc[-1]
+    train_df, test_df = df[df.Season != last_season], df[df.Season == last_season]
 
-X_train, y_train = train_df[features.NUM_FEATS], train_df["result"]
-X_test,  y_test  = test_df[features.NUM_FEATS],  test_df["result"]
+    X_train, y_train = train_df[features.NUM_FEATS], train_df["result"]
+    X_test,  y_test  = test_df [features.NUM_FEATS], test_df ["result"]
 
-# -------------------------------------------------- 4) Pipelines
-pipelines = {
-    "RandomForest": Pipeline([
-        ("pre", features.build_preprocessor()),
-        ("clf", RandomForestClassifier(n_estimators=400, random_state=42))
-    ]),
-    "LogisticRegression": Pipeline([
-        ("pre", features.build_preprocessor()),
-        ("clf", LogisticRegression(max_iter=1000, multi_class="multinomial"))
-    ]),
-    "SVC": Pipeline([
-        ("pre", features.build_preprocessor()),
-        ("clf", SVC(probability=True))
-    ]),
-}
+    # c) Modelle
+    pipelines: Dict[str,Pipeline] = {
+        "RF":  Pipeline([("clf", RandomForestClassifier(n_estimators=400, random_state=42))]),
+        "LR":  Pipeline([("clf", LogisticRegression(max_iter=1500, multi_class="multinomial"))]),
+        "SVC": Pipeline([("clf", SVC(C=10, probability=True))]),
+    }
 
-# -------------------------------------------------- 5) Metrik-Helper
-label_map = {"H":0,"D":1,"A":2}
-y_train_enc = y_train.map(label_map)
-y_test_enc  = y_test.map(label_map)
+    label = {"H":0,"D":1,"A":2}
+    results = []
+    best_name, best_pipe, best_ll = None, None, np.inf
 
-def mape(y_true, y_pred):
-    return np.mean(np.abs((y_true - y_pred) / np.clip(np.abs(y_true),1e-9,None)))
+    for name, pipe in pipelines.items():
+        t0      = time.time()
+        pipe.fit(X_train, y_train)
+        dur     = time.time() - t0
+        prob    = pipe.predict_proba(X_test)
+        pred    = pipe.predict(X_test)
+        acc     = accuracy_score(y_test, pred)
+        ll      = log_loss(y_test, prob)
+        br      = np.mean([brier_score_loss((y_test==k).astype(int), prob[:,k]) for k in range(3)])
+        rmse    = math.sqrt(mean_squared_error(pd.Series(y_test).map(label),
+                                               pd.Series(pred).map(label)))
+        results.append([name, acc, ll, br, rmse, dur])
 
-def smape(y_true, y_pred):
-    return 100/len(y_true) * np.sum(2*np.abs(y_pred - y_true) /
-                                    (np.abs(y_true)+np.abs(y_pred)+1e-9))
+        if ll < best_ll:
+            best_name, best_pipe, best_ll = name, pipe, ll
 
-def wape(y_true, y_pred):
-    return np.sum(np.abs(y_true - y_pred)) / (np.sum(np.abs(y_true))+1e-9)
+        print(f"{name}:  acc={acc:.3f}  logloss={ll:.3f}  rmse={rmse:.3f}")
 
-def brier_multiclass(y_true_enc, prob_mat, n_classes=3):
-    """mittlerer one-vs-all-Brier-Score"""
-    scores=[]
-    for k in range(n_classes):
-        binary_true = (y_true_enc==k).astype(int)
-        scores.append(brier_score_loss(binary_true, prob_mat[:,k]))
-    return np.mean(scores)
+    # d) Reporting
+    rep = pd.DataFrame(results, columns=["model","accuracy","logloss","brier","rmse","sec"])\
+            .set_index("model").sort_values("logloss")
+    Path("reports").mkdir(exist_ok=True)
+    rep.to_csv("reports/model_metrics.csv")
+    print("\n🏁  gespeicherte Metriken -> reports/model_metrics.csv")
+    print(rep)
 
-# -------------------------------------------------- 6) Training & Evaluation
-results=[]
-best_name,best_model,best_ll=None,None,np.inf
-print("Starte Training & Evaluation …")
-for name,pipe in pipelines.items():
-    t0=time.time(); pipe.fit(X_train,y_train); dur=time.time()-t0
-    prob = pipe.predict_proba(X_test)
-    pred = pipe.predict(X_test)
-    pred_enc = pd.Series(pred).map(label_map)
+    # e) Bestes Modell persistieren
+    MODEL_DIR.mkdir(exist_ok=True)
+    pickle.dump(best_pipe, open(MODEL_DIR / "best_model.pkl","wb"))
+    print(f"🚀  best_model.pkl ({best_name}) gespeichert")
 
-    acc   = accuracy_score(y_test,pred)
-    ll    = log_loss(y_test,prob)
-    br    = brier_multiclass(y_test_enc,prob)          # ✅ multiclass-Brier
-    mae   = mean_absolute_error(y_test_enc,pred_enc)
-    mse   = mean_squared_error(y_test_enc,pred_enc)
-    rmse  = math.sqrt(mse)
-    mape_ = mape(y_test_enc,pred_enc)
-    smape_= smape(y_test_enc,pred_enc)
-    wape_ = wape(y_test_enc,pred_enc)
-
-    results.append([name,acc,ll,br,mae,mse,rmse,mape_,smape_,wape_,dur])
-
-    print(f"\n{name}: Acc {acc:.3f} | LogLoss {ll:.3f} | RMSE {rmse:.3f}")
-    print(classification_report(y_test,pred))
-
-    if ll < best_ll:
-        best_ll,best_name,best_model = ll,name,pipe
-
-# -------------------------------------------------- 7) Ergebnis-Tabelle
-cols=["model","accuracy","log_loss","brier","mae","mse","rmse",
-      "mape","smape","wape","train_sec"]
-res_df = pd.DataFrame(results,columns=cols).set_index("model")
-res_df.to_csv("reports/model_metrics.csv")
-print("\nGesamtergebnis → reports/model_metrics.csv"); print(res_df)
-
-# -------------------------------------------------- 8) Bestes Modell speichern
-Path("models").mkdir(exist_ok=True)
-with open("models/best_model.pkl","wb") as f:
-    pickle.dump(best_model,f)
-print(f"\n🚀  Bestes Modell ({best_name}) gespeichert → models/best_model.pkl")
+# ────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    main()
