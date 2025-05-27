@@ -31,21 +31,25 @@ def _season_games(season: int) -> pd.DataFrame:
     """
     Liest das StatsBomb-Feed für eine Saison und extrahiert Home/Away-xG.
     """
-    url = f"https://raw.githubusercontent.com/statsbomb/open-data/master/data/matches/{season}/9.json"
+    url = (
+        f"https://raw.githubusercontent.com/"
+        f"statsbomb/open-data/master/data/matches/{season}/9.json"
+    )
     cache_file = _CACHE / f"matches_{season}.json"
     js_path = _download_json(url, cache_file)
     if js_path is None:
         return pd.DataFrame()  # keine Daten für diese Saison
+
     games = pd.read_json(js_path, orient="records")
     rows: List[Dict] = []
     for g in games:
         rows.append({
-            "Season": f"{season}/{str(season+1)[-2:]}",
-            "date": pd.to_datetime(g["match_date"]),
+            "Season":   f"{season}/{str(season+1)[-2:]}",
+            "date":     pd.to_datetime(g["match_date"]),
             "home_team": g["home_team"]["home_team_name"],
             "away_team": g["away_team"]["away_team_name"],
-            "xg_home": g["home_xg"],
-            "xg_away": g["away_xg"],
+            "xg_home":   g["home_xg"],
+            "xg_away":   g["away_xg"],
         })
     return pd.DataFrame(rows)
 
@@ -65,17 +69,32 @@ def load_fbref_xg(seasons: List[int]) -> pd.DataFrame:
 def add_fbref_xg(df: pd.DataFrame) -> pd.DataFrame:
     """
     Fügt die Spalten xg_home/xg_away zum football-data DataFrame hinzu.
+    Fehlende Werte werden mit dem Saisondurchschnitt aufgefüllt.
     """
     seasons = sorted(df["Season"].str[:4].astype(int).unique())
     xg_df = load_fbref_xg(seasons)
     if xg_df.empty:
+        # Wenn komplett leer, lege Spalten an und gib zurück
         df["xg_home"] = df["xg_away"] = pd.NA
         return df
+
+    # Merge auf Season, date, home_team, away_team
     merged = df.merge(
         xg_df,
         how="left",
         on=["Season", "date", "home_team", "away_team"],
     )
+
+    # Fehlende xG-Werte mit Saisondurchschnitt füllen
+    merged["xg_home"] = merged["xg_home"].fillna(
+        merged.groupby("Season")["xg_home"].transform("mean")
+    )
+    merged["xg_away"] = merged["xg_away"].fillna(
+        merged.groupby("Season")["xg_away"].transform("mean")
+    )
+
+    # Typkonvertierung
     merged["xg_home"] = merged["xg_home"].astype(float)
     merged["xg_away"] = merged["xg_away"].astype(float)
+
     return merged
