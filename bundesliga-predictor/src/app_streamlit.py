@@ -1,101 +1,104 @@
-# ──────────────────────────────────────────────────────────────
-# src/app_streamlit.py
-# Streamlit-Dashboard: Match- und Meister-Prognosen
-# ──────────────────────────────────────────────────────────────
-import os, sys, pickle
-from datetime import datetime
+"""
+Training-Pipeline: Daten laden ➜ Enrichment ➜ Features ➜ Modelle trainieren
+Speichert:
+  • reports/model_metrics.csv
+  • models/best_model.pkl
+"""
+import time, math, pickle, warnings
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
-import streamlit as st
+from tqdm import tqdm
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, log_loss, mean_squared_error, brier_score_loss
 
-# Projekt-Module erreichbar machen
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.config       import SEASONS, MODEL_DIR
+from src.ingest       import load_fd, add_h2h, add_fbref_xg
+import src.features   as features  # NUM_FEATS, add_*, build_preprocessor
 
-from src import ingest as ing
-from src import features as ft
-from src import simulate as sim
-from src.config import SEASONS, MODEL_DIR
-from src.features import NUM_FEATS
+warnings.filterwarnings("ignore", category=pd.errors.ParserWarning)
 
-st.set_page_config(page_title="Bundesliga Predictor",
-                   page_icon="⚽️",
-                   layout="wide")
-st.title("⚽️ Bundesliga – Match- & Meister-Predictor")
+def main():
+    print("✅ train.py gestartet")
+    # ─── 0) Daten laden + Anreichern ─────────────────────────
+    df = load_fd(SEASONS)
+    df = add_fbref_xg(df)
+    df = add_h2h(df)
 
-# ──────────────────────────────────────────────────────────────
-# 1) Daten laden  (Session-Cache)
-# ──────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner=True)
-def load_hist(use_h2h=False, use_fbref_xg=True):
-    df = ing.load_fd(SEASONS)
-    if use_fbref_xg:
-        df = ing.add_fbref_xg(df)
-    if use_h2h:
-        df = ing.add_h2h(df)
-    else:
-        df["h2h_home_winrate"] = 0.5
+    # ─── 1) Feature Engineering ──────────────────────────────
+    df = (
+        df
+        .pipe(features.add_form)
+        .pipe(features.add_goal_xg_diff)
+        .pipe(features.add_rolling_stats, window=10)
+    )
+    df = df[df.result.isin(["H","D","A"])].fillna(0)
+    print("Datensätze nach FE:", df.shape)
 
-    df = (df.pipe(ft.add_implied_prob)
-             .pipe(ft.add_form)
-             .pipe(ft.add_goal_xg_diff))
+    # ─── 2) Split (letzte Saison als Hold-out) ───────────────
+    last_season = df.Season.iloc[-1]
+    train_df    = df[df.Season != last_season]
+    test_df     = df[df.Season == last_season]
+    X_train, y_train = train_df[features.NUM_FEATS], train_df.result
+    X_test,  y_test  = test_df [features.NUM_FEATS], test_df.result
 
-    df = df[df["result"].isin(["H", "D", "A"])].fillna(0)
-    return df
+    # ─── 3) Modelle defininieren ────────────────────────────
+    pipelines = {
+        "RF": Pipeline([
+            ("pre", features.build_preprocessor()),
+            ("clf", RandomForestClassifier(n_estimators=400, random_state=42))
+        ]),
+        "LR": Pipeline([
+            ("pre", features.build_preprocessor()),
+            ("clf", LogisticRegression(max_iter=1500, multi_class="multinomial"))
+        ]),
+        "SVC": Pipeline([
+            ("pre", features.build_preprocessor()),
+            ("clf", SVC(C=10, probability=True))
+        ]),
+    }
 
-# Seitenleiste – Optionen
-with st.sidebar:
-    st.header("⚙️ Optionen")
-    use_h2h  = st.checkbox("📈 Head-to-Head verwenden (Bulibox)", value=False)
-    use_xg   = st.checkbox("🎯 FBref-xG verwenden", value=True)
+    label = {"H":0, "D":1, "A":2}
+    results, best_ll, best_name, best_pipe = [], float("inf"), None, None
 
-hist = load_hist(use_h2h, use_xg)
+    for name, pipe in pipelines.items():
+        t0 = time.time()
+        pipe.fit(X_train, y_train)
+        dur  = time.time() - t0
+        prob = pipe.predict_proba(X_test)
+        pred = pipe.predict(X_test)
 
-# ──────────────────────────────────────────────────────────────
-# 2) Modell laden
-# ──────────────────────────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
-def load_model():
-    mdl_path = MODEL_DIR / "best_model.pkl"
-    if not mdl_path.exists():
-        st.error("Kein trainiertes Modell gefunden. Bitte zuerst `python -m src.train` ausführen.")
-        st.stop()
-    return pickle.load(open(mdl_path, "rb"))
+        acc  = accuracy_score(y_test, pred)
+        ll   = log_loss(y_test, prob)
+        br   = np.mean([brier_score_loss((y_test==k).astype(int), prob[:,k]) for k in range(3)])
+        rmse = math.sqrt(mean_squared_error(pd.Series(y_test).map(label),
+                                            pd.Series(pred ).map(label)))
 
-model = load_model()
+        results.append([name, acc, ll, br, rmse, dur])
+        print(f"{name}:  acc={acc:.3f}  logloss={ll:.3f}  rmse={rmse:.3f}")
 
-# ──────────────────────────────────────────────────────────────
-# 3) Kommende Spiele & Match-Prognosen
-# ──────────────────────────────────────────────────────────────
-this_season = datetime.now().year if datetime.now().month >= 7 else datetime.now().year - 1
-fixtures = ing.fetch_fixtures(this_season)
+        if ll < best_ll:
+            best_ll, best_name, best_pipe = ll, name, pipe
 
-st.subheader("🔮 Match-Wahrscheinlichkeiten")
-max_md = int(fixtures.matchday.max())
-sel_md = st.slider("Spieltag wählen", 1, max_md, max_md)
-upcoming = fixtures[fixtures.matchday == sel_md].copy()
+    # ─── 4) Report & Speichern ───────────────────────────────
+    cols = ["model","accuracy","logloss","brier","rmse","sec"]
+    rep  = pd.DataFrame(results, columns=cols) \
+             .set_index("model") \
+             .sort_values("logloss")
 
-# Dummy-Features (live-Odds/Form fehlen i. d. R.)
-for s in ("home", "draw", "away"):
-    upcoming[f"imp_{s}"] = 1/3
-upcoming["form_last5"] = 1.3
-upcoming["goal_diff"]  = 0
-upcoming["xg_diff"]    = 0
-upcoming["h2h_home_winrate"] = 0.5 if not use_h2h else upcoming["h2h_home_winrate"]
+    Path("reports").mkdir(exist_ok=True)
+    rep.to_csv("reports/model_metrics.csv")
+    print("\n🏁 Metrics → reports/model_metrics.csv")
+    print(rep)
 
-# Prognose
-probs = model.predict_proba(upcoming[NUM_FEATS])
-pred_df = pd.DataFrame(probs, columns=["Heimsieg", "Remis", "Auswärtssieg"])
-pred_df.insert(0, "Heim", upcoming.home_team.values)
-pred_df.insert(1, "Auswärts", upcoming.away_team.values)
+    MODEL_DIR.mkdir(exist_ok=True)
+    with open(MODEL_DIR / "best_model.pkl", "wb") as f:
+        pickle.dump(best_pipe, f)
+    print(f"🚀 best_model.pkl ({best_name}) gespeichert")
 
-st.dataframe(pred_df.style.format({col:"{:.1%}" for col in ["Heimsieg","Remis","Auswärtssieg"]}))
-
-# ──────────────────────────────────────────────────────────────
-# 4) Meister-Simulation
-# ──────────────────────────────────────────────────────────────
-st.subheader("🏆 Meister-Wahrscheinlichkeiten (Monte Carlo, 10 000)")
-champ = sim.champion_probs(upcoming, model, NUM_FEATS, 10_000)
-champ_df = (pd.DataFrame(champ.items(), columns=["Team","Chance"])
-              .sort_values("Chance", ascending=False))
-st.bar_chart(champ_df.set_index("Team"))
-
-st.caption("© 2025 – Datenquellen: football-data.co.uk · FBref/StatsBomb · OpenLigaDB · Bulibox")
+if __name__ == "__main__":
+    main()

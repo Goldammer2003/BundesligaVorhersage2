@@ -1,8 +1,7 @@
 """
-Training, Hyperparameter-Tuning & Evaluation
+Training, Hyperparameter-Tuning & Evaluation (für Streamlit-App)
 """
 from typing import Dict
-
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -37,8 +36,8 @@ def _param_grids():
 
 def train(train_df: pd.DataFrame) -> Dict[str, Pipeline]:
     X, y = train_df[NUM_FEATS], train_df[TARGET]
-    cv = TimeSeriesSplit(n_splits=5)
-    best = {}
+    cv    = TimeSeriesSplit(n_splits=5)
+    best  = {}
     for name, pipe in _pipelines().items():
         gs = GridSearchCV(pipe, _param_grids()[name], cv=cv,
                           scoring="neg_log_loss", n_jobs=-1)
@@ -53,13 +52,11 @@ def evaluate(models: Dict[str, Pipeline], test_df: pd.DataFrame) -> pd.DataFrame
     for n, m in models.items():
         prob = m.predict_proba(X)
         pred = m.predict(X)
-        rows.append(
-            {
-                "model": n,
-                "accuracy": accuracy_score(y, pred),
-                "logloss": log_loss(y, prob),
-                "brier": brier_score_loss(y.map({"H":0,"D":1,"A":2}), prob.max(axis=1)),
-            }
-        )
-        print("\\n", n.upper(), classification_report(y, pred))
+        rows.append({
+            "model": n,
+            "accuracy": accuracy_score(y, pred),
+            "logloss": log_loss(y, prob),
+            "brier":  brier_score_loss(y.map({"H":0,"D":1,"A":2}), prob.max(axis=1)),
+        })
+        print("\n", n.upper(), classification_report(y, pred))
     return pd.DataFrame(rows).set_index("model").sort_values("logloss")
