@@ -1,6 +1,6 @@
 # Python virtual environments
-venv/
 .venv/
+venv/
 env/
 ENV/
 env.bak/
