@@ -8,6 +8,8 @@ Speichert:
   • reports/model_metrics.csv
   • reports/correlation_matrix.png
   • models/best_model.pkl
+
+  • data/final/season_summary.csv   ← NEU: finale Inputdaten (Features) für die Abgabe
 """
 import time
 import math
@@ -35,7 +37,7 @@ from sklearn.metrics           import (
 )
 from sklearn.pipeline          import Pipeline
 
-from src.config    import SEASONS, MODEL_DIR
+from src.config    import SEASONS, MODEL_DIR, FINAL_DIR
 from src.ingest    import load_fd, add_h2h, add_fbref_xg
 import src.features as feats  # NUM_FEATS, add_* utils
 
@@ -43,6 +45,10 @@ warnings.filterwarnings("ignore", category=pd.errors.ParserWarning)
 
 
 def correlation_filter(df: pd.DataFrame, columns: list[str], threshold: float = 0.90) -> list[str]:
+    """
+    Entfernt Features, die untereinander eine absolute Korrelation ≥ threshold haben,
+    um Multikollinearität zu vermeiden.
+    """
     corr = df[columns].corr().abs()
     keep, dropped = [], set()
     for c in corr.columns:
@@ -56,30 +62,33 @@ def correlation_filter(df: pd.DataFrame, columns: list[str], threshold: float = 
 def main() -> None:
     print("✅ train.py gestartet")
 
-    # ── 0) Daten laden + Enrichment ─────────────────────────
+    # ── 0) Daten laden + Enrichment (Raw → xG → H2H → Form → RollingStats) ──
     df = (
-        load_fd(SEASONS)
-        .pipe(add_fbref_xg)
-        .pipe(add_h2h)
-        .pipe(feats.add_form)
-        .pipe(feats.add_goal_xg_diff)
-        .pipe(feats.add_rolling_stats, window=10)
+        load_fd(SEASONS)         # football-data: Saison-Daten, Quoten, Ergebnisse
+        .pipe(add_fbref_xg)      # StatsBomb-Open-Data xG hinzufügen
+        .pipe(add_h2h)           # Head-to-Head-Winrate via Bulibox-Scraper
+        .pipe(feats.add_form)    # Form-Feature (letzte 5 Spiele) berechnen
+        .pipe(feats.add_goal_xg_diff)  # Differenz Goal – xG
+        .pipe(feats.add_rolling_stats, window=10)  # Rolling-Stats (letzte 10 Spiele)
     )
 
-    # ── 0a) Datenqualität: alle NaNs mit 0 auffüllen ────────
+    # ── 0a) Datenqualität: Inf/NaN → 0, nur [H,D,A] behalten ──
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.fillna(0)
     df = df[df.result.isin(["H", "D", "A"])]
     print("Datensätze nach FE + Reinigung:", df.shape)
 
-    # ── 0b) Reports-Ordner säubern ───────────────────────────
-    rpt = Path("reports")
-    rpt.mkdir(exist_ok=True)
-    for f in rpt.glob("*"):
-        f.unlink()
+    # ── NEU: 0b) Export der finalen Inputdaten (Features) für Abgabe ──
+    # Wir speichern hier alle historischen Spiele mit den berechneten Features
+    # (ohne Filterung), sodass der Prüfungsausschuss jederzeit nachvollziehen kann,
+    # welche Daten wir im Training verwendet haben.
+    FINAL_DIR.mkdir(exist_ok=True)
+    df.to_csv(FINAL_DIR / "season_summary.csv", index=False)
+    print(f"📑 data/final/season_summary.csv gespeichert (Alle Features)")
 
-    # ── 1) Low-Variance + Korrelations-Filter ─────────────────
-    base_feats = feats.NUM_FEATS  # <- FEHLTE VORHER!
+    # ── 1) Low-Variance + Korrelations-Filter ────────────────────────
+    base_feats = feats.NUM_FEATS  # ← Hier definieren wir die Ausgangs-Features
+    # (form_last5, xg_diff, h2h_home_winrate, avg_goals_home_last10, ...)
     vt = VarianceThreshold(threshold=0.0)
     vt.fit(df[base_feats])
     vt_feats = [f for f, keep in zip(base_feats, vt.get_support()) if keep]
@@ -90,6 +99,8 @@ def main() -> None:
 
     # Korrelationsmatrix speichern
     corr_mat = df[corr_feats].corr()
+    rpt = Path("reports")
+    rpt.mkdir(exist_ok=True)
     plt.figure(figsize=(10, 6))
     sns.heatmap(
         corr_mat,
@@ -103,7 +114,7 @@ def main() -> None:
     plt.close()
     print("📊 reports/correlation_matrix.png gespeichert")
 
-    # ── 2) Train/Test-Split (Hold-out: letzte 3 Saisons) ──────
+    # ── 2) Train/Test-Split (Hold-out: letzte 3 Saisons) ───────────────
     df["SeasonYear"] = df.Season.str[:4].astype(int)
     years        = sorted(df.SeasonYear.unique())
     train_years  = years[:-3]
@@ -117,7 +128,7 @@ def main() -> None:
     print(f"  → Train Saisons: {train_years}")
     print(f"  → Test  Saisons: {test_years}")
 
-    # ── 3) Stufe-2 Selektion (L1-LogReg) ─────────────────────
+    # ── 3) Stufe-2 Selektion (L1-LogReg) ──────────────────────────────
     l1_selector = SelectFromModel(
         LogisticRegression(penalty="l1", C=1.0, solver="liblinear",
                            max_iter=1000, random_state=42),
@@ -135,7 +146,7 @@ def main() -> None:
             remainder="drop",
         )
 
-    # ── 4) Modell-Pipelines ───────────────────────────────────
+    # ── 4) Modell-Pipelines ────────────────────────────────────────────
     pipelines = {
         "RF": Pipeline([
             ("pre", make_pre()),
@@ -154,7 +165,7 @@ def main() -> None:
         ]),
     }
 
-    # ── 5) Training & Evaluation ──────────────────────────────
+    # ── 5) Training & Evaluation ──────────────────────────────────────
     label_map = {"H": 0, "D": 1, "A": 2}
     results, best_ll = [], float("inf")
 
@@ -183,7 +194,7 @@ def main() -> None:
         if ll < best_ll:
             best_ll, best_name, best_pipe = ll, name, pipe
 
-    # ── 6) Reporting ──────────────────────────────────────────
+    # ── 6) Reporting ───────────────────────────────────────────────────
     rep_cols = ["model", "accuracy", "logloss", "brier", "rmse", "sec"]
     rep = pd.DataFrame(results, columns=rep_cols) \
             .set_index("model") \

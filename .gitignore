@@ -1,9 +1,15 @@
-# Python virtual environments
-.venv/
+# Virtuelle Umgebung
 venv/
-env/
-ENV/
-env.bak/
-*.pyc
+.env/
 __pycache__/
-.DS_Store.venv/
+*.pyc
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# Python-Pakete
+*.egg-info/

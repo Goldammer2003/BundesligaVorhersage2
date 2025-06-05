@@ -10,9 +10,10 @@ DATA_DIR  = ROOT / "data"
 RAW_DIR   = DATA_DIR / "raw"
 PROC_DIR  = DATA_DIR / "processed"
 MODEL_DIR = ROOT / "models"
+FINAL_DIR = DATA_DIR / "final"  # <--- Ergänzt für finale CSV-Daten
 
 # Alle Ordner anlegen, wenn sie noch nicht existieren
-for d in (DATA_DIR, RAW_DIR, PROC_DIR, MODEL_DIR):
+for d in (DATA_DIR, RAW_DIR, PROC_DIR, FINAL_DIR, MODEL_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # ------------------------------------------------------------------------

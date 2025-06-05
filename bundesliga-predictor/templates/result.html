@@ -1,0 +1,38 @@
+<!-- templates/result.html -->
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Ergebnis der Meister-Simulation</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🏆 Meisterwahrscheinlichkeiten ab Spieltag {{ spieltag }}</h1>
+      <p>Ergebnisse der 10.000-fachen Simulation basierend auf dem aktuellen Tabellenstand.</p>
+    </header>
+
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>Team</th>
+          <th>Wahrscheinlichkeit (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for team, prob in results.items() %}
+        <tr>
+          <td>{{ team }}</td>
+          <td>{{ "%.1f"|format(prob * 100) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="back-link">
+      <a href="{{ url_for('index') }}">← Zurück zum Formular</a>
+    </div>
+  </div>
+</body>
+</html>
