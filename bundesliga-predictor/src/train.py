@@ -79,7 +79,7 @@ def main() -> None:
         f.unlink()
 
     # ── 1) Low-Variance + Korrelations-Filter ─────────────────
-    # (a) Low‐Variance nur für wirklich konstante Spalten (Varianz==0)
+    base_feats = feats.NUM_FEATS  # <- FEHLTE VORHER!
     vt = VarianceThreshold(threshold=0.0)
     vt.fit(df[base_feats])
     vt_feats = [f for f, keep in zip(base_feats, vt.get_support()) if keep]
@@ -88,7 +88,7 @@ def main() -> None:
     corr_feats = correlation_filter(df, vt_feats, threshold=0.90)
     print("🪄 Nach Korrelations-Filter:", corr_feats)
 
-    # Korrelationsmatrix speichernƒ
+    # Korrelationsmatrix speichern
     corr_mat = df[corr_feats].corr()
     plt.figure(figsize=(10, 6))
     sns.heatmap(
