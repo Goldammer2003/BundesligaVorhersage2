@@ -1,43 +1,35 @@
-<!-- templates/index.html -->
 <!doctype html>
 <html lang="de">
 <head>
-  <meta charset="utf-8">
-  <title>Bundesliga Meister-Simulation</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <meta charset="utf-8">
+    <title>Bundesliga Meister-Simulation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>🏆 Bundesliga Meister-Simulation</h1>
-      <p>Gib den aktuellen Spieltag und deinen aktuellen Tabellenstand (CSV) ein, 
-         um die Meisterwahrscheinlichkeiten ab diesem Zeitpunkt zu sehen.</p>
-    </header>
+    <div class="container">
+        <header>
+            <h1>🏆 Bundesliga Meister-Simulation</h1>
+        </header>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-      <div class="flash-messages">
-        {% for category, msg in messages %}
-          <div class="flash {{ category }}">{{ msg }}</div>
-        {% endfor %}
-      </div>
-      {% endif %}
-    {% endwith %}
+        <form action="{{ url_for('simulate') }}" method="post">
+            <label>Spieltag (1-34):
+                <input type="number" name="spieltag" required min="1" max="34">
+            </label>
 
-    <form action="{{ url_for('simulate') }}" method="post" enctype="multipart/form-data">
-      <div class="form-group">
-        <label for="spieltag"><strong>Spieltag (1–34):</strong></label>
-        <input type="number" id="spieltag" name="spieltag" min="1" max="34" required>
-      </div>
+            <h3>Tabellenstand:</h3>
+            <div id="teams">
+                {% for team in ["Bayern München", "Dortmund", "RB Leipzig", "Leverkusen"] %}
+                    <div>
+                        <input type="hidden" name="team[]" value="{{ team }}">
+                        <label>{{ team }} Punkte:
+                            <input type="number" name="points_{{ team }}" required min="0">
+                        </label>
+                    </div>
+                {% endfor %}
+            </div>
 
-      <div class="form-group">
-        <label for="csv_stand"><strong>Tabellenstand (CSV mit Spalten <code>team, points</code>):</strong></label>
-        <input type="file" id="csv_stand" name="csv_stand" accept=".csv" required>
-        <small class="hint">Dateiformat: zwei Spalten, z.B.: <em>team,points</em></small>
-      </div>
-
-      <button type="submit" class="btn">Simuliere Meisterschaft</button>
-    </form>
-  </div>
+            <button type="submit">Simulation starten</button>
+        </form>
+    </div>
 </body>
 </html>

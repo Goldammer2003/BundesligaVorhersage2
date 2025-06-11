@@ -30,4 +30,39 @@ Basierend auf historischen Daten werden verschiedene Modelle trainiert, um den A
 
 ```bash
 git clone https://github.com/Goldammer2003/BundesligaVorhersage2.git
-cd BundesligaVorhersage2
+cd bundesliga-predictor
+
+
+Virtuelle Umgebung erstellen: 
+
+macOS/Linux: 
+python3 -m venv venv
+source venv/bin/activate
+
+Windows (CMD):
+python -m venv venv
+venv\Scripts\activate
+
+Abhängigkeiten installieren: 
+pip install --upgrade pip
+pip install -r requirements.txt
+
+
+Projekt ausführen 
+
+1. Modelltraining starten 
+python -m src.train
+
+
+2. Reports & Modelle 
+	•	📊 Korrelationsmatrix: reports/correlation_matrix.png
+	•	🧠 Modell-Metriken: reports/model_metrics.csv
+	•	🔐 Bestes Modell: models/best_model.pkl
+
+
+    🔒 Hinweis zu .gitignore
+
+Die virtuelle Umgebung (venv/) und Outputs wie models/ oder reports/ werden nicht in Git getrackt – siehe .gitignore.
+
+
+''' 
