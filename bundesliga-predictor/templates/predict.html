@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-4 text-center fw-semibold">
+  Vorhersage – Spieltag {{ spieltag }}
+</h2>
+
+<div class="row g-4">
+  <!-- Ergebnis-Wahrscheinlichkeiten -->
+  <div class="col-12 col-md-6">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-header text-center fw-semibold">
+        Ergebnis-Wahrscheinlichkeiten
+      </div>
+      <div class="card-body">
+        <ul class="list-group">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Heimsieg {{ home_team }}
+            <span class="badge bg-primary rounded-pill">
+              {{ (result_proba['H'] * 100)|round(1) }} %
+            </span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Unentschieden
+            <span class="badge bg-secondary rounded-pill">
+              {{ (result_proba['D'] * 100)|round(1) }} %
+            </span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Auswärtssieg {{ away_team }}
+            <span class="badge bg-success rounded-pill">
+              {{ (result_proba['A'] * 100)|round(1) }} %
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Expected Goals -->
+  {% if lambda_home is not none %}
+    <div class="col-12 col-md-6">
+      <div class="card h-100 shadow-sm border-0">
+        <div class="card-header text-center fw-semibold">
+          Erwartete Tore (xG)
+        </div>
+        <div class="card-body">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Team</th>
+                <th class="text-end">xG</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{{ home_team }}</td>
+                <td class="text-end">{{ lambda_home|round(2) }}</td>
+              </tr>
+              <tr>
+                <td>{{ away_team }}</td>
+                <td class="text-end">{{ lambda_away|round(2) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<!-- Meisterschafts-Wahrscheinlichkeiten -->
+{% if champ_probs %}
+  <div class="card shadow-sm border-0 mt-4">
+    <div class="card-header text-center fw-semibold">
+      Meisterschafts-Wahrscheinlichkeiten (live)
+    </div>
+    <div class="card-body table-responsive">
+      <table class="table table-striped align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th class="text-end">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t, p in champ_probs|dictsort(false, 'value')|reverse %}
+            <tr>
+              <td>{{ t }}</td>
+              <td class="text-end">{{ (p * 100)|round(1) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
