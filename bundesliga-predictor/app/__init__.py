@@ -9,6 +9,6 @@ def create_app():
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 
     with app.app_context():
-        from .api import api_blueprint
-        app.register_blueprint(api_blueprint)
+        from .api import predict_api_blueprint
+        app.register_blueprint(predict_api_blueprint)
         return app

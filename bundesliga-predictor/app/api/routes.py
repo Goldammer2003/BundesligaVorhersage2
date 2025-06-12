@@ -1,4 +1,4 @@
-from . import api_blueprint
+from . import predict_api_blueprint
 from flask import render_template, request, flash
 from ..forms import PredictionForm
 from ..utils import TEAMS, best_model, simulate_championship, expected_goals
@@ -6,8 +6,7 @@ import pandas as pd
 import numpy as np
 
 # API Routes
-
-@api_blueprint.route("/", methods=["GET", "POST"])
+@predict_api_blueprint.route("/", methods=["GET", "POST"])
 def index():
     form = PredictionForm()
 
@@ -66,4 +65,5 @@ def index():
     
     for entry in form.table:
         entry.points.data = 0
+
     return render_template("index.html", form=form, teams=TEAMS)
