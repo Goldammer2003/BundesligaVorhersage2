@@ -62,6 +62,9 @@ python -m src.train
 
     🔒 Hinweis zu .gitignore
 
+3. Flask App starten
+python run.py
+
 Die virtuelle Umgebung (venv/) und Outputs wie models/ oder reports/ werden nicht in Git getrackt – siehe .gitignore.
 
 
