@@ -67,3 +67,32 @@ def index():
         entry.points.data = 0
 
     return render_template("index.html", form=form, teams=TEAMS)
+
+@predict_api_blueprint.route("/calcwinpercentage",methods=["POST"])
+def calcwinpercentage(spieldf):
+    # src/logic/wahrscheinlichkeit.py
+
+    teams = {}
+    
+    for _, row in spieldf.iterrows():
+        home_team, away_team = row['home_team'], row['away_team']
+        tore_home_team, tore_away_team = row['Tore_home_team'], row['Tore_away_team']
+
+        if home_team not in teams:
+            teams[home_team] = 0
+        if away_team not in teams:
+            teams[away_team] = 0
+
+        if tore_home_team > tore_away_team:
+            teams[home_team] += 3
+        elif tore_home_team < tore_away_team:
+            teams[away_team] += 3
+        else:
+            teams[home_team] += 1
+            teams[away_team] += 1
+
+    # einfache Wahrscheinlichkeit: Punkte / Gesamtpunkte
+    gesamt = sum(teams.values())
+    wahrscheinlichkeiten = {team: round(punkte / gesamt * 100, 2) for team, punkte in teams.items()}
+    
+    return render_template("calcpercentage.html", daten=wahrscheinlichkeiten)

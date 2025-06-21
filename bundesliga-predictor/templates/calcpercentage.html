@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meisterschaftswahrscheinlichkeiten</title>
+</head>
+<body>
+    <h1>Meisterschaftswahrscheinlichkeiten</h1>
+    <table border="1">
+        <tr><th>Team</th><th>Wahrscheinlichkeit (%)</th></tr>
+        {% for team, wkeit in daten.items() %}
+        <tr><td>{{ team }}</td><td>{{ wkeit }}</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
