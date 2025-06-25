@@ -1,17 +1,20 @@
 from . import predict_api_blueprint
 from flask import render_template, request, flash
 from ..forms import PredictionForm
-from ..utils import TEAMS, best_model, simulate_championship, expected_goals
+from ..utils import (
+    TEAMS, best_model, simulate_championship,
+    expected_goals, generate_round_robin_fixtures
+)
 import pandas as pd
 import numpy as np
 
-# API Routes
+POINTS = {"H": 3, "D": 1, "A": 0}
+
 @predict_api_blueprint.route("/", methods=["GET", "POST"])
 def index():
     form = PredictionForm()
 
     if request.method == "POST":
-
         if form.validate_on_submit():
             spieltag = form.spieltag.data
             home = form.home_team.data
@@ -19,38 +22,52 @@ def index():
 
             points = {TEAMS[i]: form.table[i].points.data for i in range(len(TEAMS))}
 
-            # Feature-DataFrame bauen
+            # 1-Spiel-Vorhersage
             X = pd.DataFrame({
                 "home_team": [home],
                 "away_team": [away],
                 "matchday": [spieltag],
             })
 
-            # Winrates last10
             def calc_winrate(team):
                 played = min(spieltag, 10)
-                pts = points[team]
-                return min(pts / (played * 3), 1)
+                return 0.0 if played == 0 else min(points[team] / (played * 3), 1)
 
             X["winrate_last10_home"] = calc_winrate(home)
             X["winrate_last10_away"] = calc_winrate(away)
 
-            # Prediction und Missing-Columns-Fallback
-            try:
-                proba = best_model.predict_proba(X)[0]
-            except ValueError as e:
-                msg = str(e)
-                if "columns are missing" in msg:
-                    miss = eval(msg.split("columns are missing:")[1])
-                    for c in miss:
-                        X[c] = 0
-                    proba = best_model.predict_proba(X)[0]
-                else:
-                    raise
+            for feat in best_model.feature_names_in_:
+                if feat not in X.columns:
+                    X[feat] = 0
+
+            proba = best_model.predict_proba(X[best_model.feature_names_in_])[0]
             result_proba = dict(zip(best_model.classes_, proba))
 
             lambda_h, lambda_a = expected_goals(home, away)
-            champ_probs = simulate_championship(spieltag)
+
+            # Generiere realistischen Spielplan & filtere nächste 5 Spieltage
+            full_schedule = generate_round_robin_fixtures(TEAMS)
+            remaining = full_schedule[
+                (full_schedule["matchday"] > spieltag) & 
+                (full_schedule["matchday"] <= spieltag + 5)
+            ].copy()
+
+            remaining["winrate_last10_home"] = remaining["home_team"].apply(calc_winrate)
+            remaining["winrate_last10_away"] = remaining["away_team"].apply(calc_winrate)
+
+            for feat in best_model.feature_names_in_:
+                if feat not in remaining.columns:
+                    remaining[feat] = 0
+
+            fixtures_df = remaining[["home_team", "away_team", *best_model.feature_names_in_]]
+            champ_probs = simulate_championship(
+                start_matchday=spieltag,
+                fixtures=fixtures_df,
+                model=best_model,
+                features=best_model.feature_names_in_,
+                current_points=points,
+                n_sim=2000
+            )
 
             return render_template(
                 "predict.html",
@@ -62,37 +79,8 @@ def index():
                 lambda_away=lambda_a,
                 champ_probs=champ_probs,
             )
-    
+
     for entry in form.table:
         entry.points.data = 0
 
     return render_template("index.html", form=form, teams=TEAMS)
-
-@predict_api_blueprint.route("/calcwinpercentage",methods=["POST"])
-def calcwinpercentage(spieldf):
-    # src/logic/wahrscheinlichkeit.py
-
-    teams = {}
-    
-    for _, row in spieldf.iterrows():
-        home_team, away_team = row['home_team'], row['away_team']
-        tore_home_team, tore_away_team = row['Tore_home_team'], row['Tore_away_team']
-
-        if home_team not in teams:
-            teams[home_team] = 0
-        if away_team not in teams:
-            teams[away_team] = 0
-
-        if tore_home_team > tore_away_team:
-            teams[home_team] += 3
-        elif tore_home_team < tore_away_team:
-            teams[away_team] += 3
-        else:
-            teams[home_team] += 1
-            teams[away_team] += 1
-
-    # einfache Wahrscheinlichkeit: Punkte / Gesamtpunkte
-    gesamt = sum(teams.values())
-    wahrscheinlichkeiten = {team: round(punkte / gesamt * 100, 2) for team, punkte in teams.items()}
-    
-    return render_template("calcpercentage.html", daten=wahrscheinlichkeiten)
