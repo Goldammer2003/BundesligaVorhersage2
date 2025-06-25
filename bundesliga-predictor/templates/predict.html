@@ -45,21 +45,10 @@
         </div>
         <div class="card-body">
           <table class="table align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Team</th>
-                <th class="text-end">xG</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Team</th><th class="text-end">xG</th></tr></thead>
             <tbody>
-              <tr>
-                <td>{{ home_team }}</td>
-                <td class="text-end">{{ lambda_home|round(2) }}</td>
-              </tr>
-              <tr>
-                <td>{{ away_team }}</td>
-                <td class="text-end">{{ lambda_away|round(2) }}</td>
-              </tr>
+              <tr><td>{{ home_team }}</td><td class="text-end">{{ lambda_home|round(2) }}</td></tr>
+              <tr><td>{{ away_team }}</td><td class="text-end">{{ lambda_away|round(2) }}</td></tr>
             </tbody>
           </table>
         </div>
@@ -68,30 +57,25 @@
   {% endif %}
 </div>
 
-<!-- Meisterschafts-Wahrscheinlichkeiten -->
-{% if champ_probs %}
-  <div class="card shadow-sm border-0 mt-4">
-    <div class="card-header text-center fw-semibold">
-      Meisterschafts-Wahrscheinlichkeiten (live)
-    </div>
-    <div class="card-body table-responsive">
-      <table class="table table-striped align-middle mb-0">
-        <thead>
-          <tr>
-            <th>Team</th>
-            <th class="text-end">%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t, p in champ_probs|dictsort(false, 'value')|reverse %}
-            <tr>
-              <td>{{ t }}</td>
-              <td class="text-end">{{ (p * 100)|round(1) }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+<!-- Platzierungen-Wahrscheinlichkeiten -->
+<div class="card shadow-sm border-0 mt-4">
+  <div class="card-header text-center fw-semibold">
+    Saison-Platzierungen (Simulation)
   </div>
-{% endif %}
+  <div class="card-body table-responsive">
+    <table class="table table-striped align-middle mb-0">
+      <thead><tr><th>Team</th>{% for i in range(1, 19) %}<th>{{ i }}.</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for team, probs in placement_probs.items() %}
+        <tr>
+          <td>{{ team }}</td>
+          {% for p in probs %}
+          <td>{{ (p * 100)|round(1) }}%</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

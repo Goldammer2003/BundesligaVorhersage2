@@ -22,7 +22,7 @@ def index():
 
             points = {TEAMS[i]: form.table[i].points.data for i in range(len(TEAMS))}
 
-            # 1-Spiel-Vorhersage
+            # Spielvorhersage (einzelnes Spiel)
             X = pd.DataFrame({
                 "home_team": [home],
                 "away_team": [away],
@@ -43,14 +43,12 @@ def index():
             proba = best_model.predict_proba(X[best_model.feature_names_in_])[0]
             result_proba = dict(zip(best_model.classes_, proba))
 
+            # Expected Goals
             lambda_h, lambda_a = expected_goals(home, away)
 
-            # Generiere realistischen Spielplan & filtere nächste 5 Spieltage
+            # Spielplan bis Saisonende generieren
             full_schedule = generate_round_robin_fixtures(TEAMS)
-            remaining = full_schedule[
-                (full_schedule["matchday"] > spieltag) & 
-                (full_schedule["matchday"] <= spieltag + 5)
-            ].copy()
+            remaining = full_schedule[full_schedule["matchday"] > spieltag].copy()
 
             remaining["winrate_last10_home"] = remaining["home_team"].apply(calc_winrate)
             remaining["winrate_last10_away"] = remaining["away_team"].apply(calc_winrate)
@@ -60,13 +58,15 @@ def index():
                     remaining[feat] = 0
 
             fixtures_df = remaining[["home_team", "away_team", *best_model.feature_names_in_]]
-            champ_probs = simulate_championship(
+
+            # Meisterschafts-Simulation mit Platzierungen
+            placement_probs = simulate_championship(
                 start_matchday=spieltag,
                 fixtures=fixtures_df,
                 model=best_model,
                 features=best_model.feature_names_in_,
                 current_points=points,
-                n_sim=2000
+                n_sim=1500  # Kompromiss: realistisch + schnell
             )
 
             return render_template(
@@ -77,7 +77,7 @@ def index():
                 result_proba=result_proba,
                 lambda_home=lambda_h,
                 lambda_away=lambda_a,
-                champ_probs=champ_probs,
+                placement_probs=placement_probs,
             )
 
     for entry in form.table:
