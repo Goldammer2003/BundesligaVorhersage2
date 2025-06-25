@@ -1,51 +1,45 @@
-/* Farb-Palette (Bootstrap-Override via CSS-Variablen) */
+/* Farbschema (Bootstrap-Override) */
 :root {
-  --bs-primary: #0063e5;        /* sattenes Blau */
+  --bs-primary: #0063e5;
   --bs-secondary: #6c757d;
   --bs-success: #2ca66b;
 }
 
-/* Body & Globales Layout */
+/* Grundschrift */
 body {
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "Noto Sans", sans-serif;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
 
-/* Karten-Optik verfeinern */
-.card {
-  border-radius: 1rem;
-}
-
-.card-header {
-  background: linear-gradient(
-    135deg,
-    rgba(0, 99, 229, 0.9) 0%,
-    rgba(0, 156, 223, 0.9) 100%
-  );
+/* Karten-Design */
+.card           { border-radius: 1rem; }
+.card-header    {
+  background: linear-gradient(135deg, rgba(0, 99, 229, 0.9) 0%, rgba(0, 156, 223, 0.9) 100%);
   color: #fff;
   border-top-left-radius: 1rem;
   border-top-right-radius: 1rem;
 }
 
-/* Buttons */
-.btn-primary {
-  border-radius: 0.75rem;
-  font-weight: 600;
-}
+/* Buttons & Badges */
+.btn-primary { border-radius: 0.75rem; font-weight: 600; }
+.badge       { font-size: 0.9rem; padding: 0.55em 0.9em; }
 
-/* Badges */
-.badge {
-  font-size: 0.9rem;
-  padding: 0.55em 0.9em;
-}
-
-/* Tabelle */
+/* Tabellenzellen */
 .table > :not(caption) > * > * {
   padding: 0.8rem 1rem;
   vertical-align: middle;
 }
 
 /* Flash-Messages */
-.alert {
-  border-radius: 0.75rem;
+.alert { border-radius: 0.75rem; }
+
+/* ───────────── Spinner-Overlay ───────────── */
+.spinner-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 1050;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
 }

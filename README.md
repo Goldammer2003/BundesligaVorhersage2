@@ -65,6 +65,23 @@ python -m src.train
 3. Flask App starten
 python run.py
 
+``` Falls der Port von einem vorherigen Laden noch in Benutzung ist: 
+1. Finde den Prozess, der Port 8000 blockiert: 
+lsof -i :8000
+
+Beispielausgabe:
+COMMAND     PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+python3.1 23175 prometheus    6u  IPv4 ...      0t0  TCP *:irdmi (LISTEN)
+
+2. Beende den Prozess 
+kill -9 23175 
+-> Ersetze 23175 durch die tatsächliche PID aus deinem Befehl oben 
+
+3. starte Flask danach erneut: 
+python run.py 
+
+```
+
 Die virtuelle Umgebung (venv/) und Outputs wie models/ oder reports/ werden nicht in Git getrackt – siehe .gitignore.
 
 
