@@ -7,8 +7,9 @@ from ..utils import MAX_POINTS, TEAMS
 class TableEntryForm(Form):
     points = IntegerField(
         "Punkte",
-        validators=[DataRequired(), NumberRange(min=0, max=MAX_POINTS)],
+        validators=[NumberRange(min=0, max=MAX_POINTS)],
         render_kw={"class": "form-control", "placeholder": "0"},
+        default=0,
     )
 
 # Hauptformular
